@@ -15,8 +15,10 @@ import (
 
 // helper types for caching DB rows minimal fields (adapt if you have more)
 type Branch struct {
-	ID   int64
-	Name string
+	ID         int64
+	Name       string
+	TermCash   int64
+	TermCredit int64
 }
 type Outlet struct {
 	ID       int64
@@ -127,6 +129,7 @@ func RunImportSalesInvoiceCmd(args []string) {
 	sourceCache := map[string]*SalesSource{}
 	returnInvoiceCache := map[string]*ReturnInvoice{}
 	invoiceExistsCache := map[string]bool{}
+	branchBillingCache := map[string]*Branch{}
 
 	// batch builders: we will batch-insert into 3 tables
 	orderCols := []string{
@@ -136,7 +139,7 @@ func RunImportSalesInvoiceCmd(args []string) {
 		"salesman_id", "region_id", "principal_id",
 		"stamp_duty", "is_ecatalogue", "term_days",
 		"amount", "ppn", "cash_discount",
-		"createdAt", "createdBy", "is_legacy",
+		"createdAt", "createdBy", "is_legacy", "snapshot_sales_due_date",
 	}
 	invoiceCols := []string{
 		"outlet_id", "division_id", "branch_id", "branch_billing_id",
@@ -145,7 +148,7 @@ func RunImportSalesInvoiceCmd(args []string) {
 		"sales_invoice_type_id", "salesman_id", "region_id",
 		"principal_id", "stamp_duty", "is_ecatalogue",
 		"is_b2b", "term_days", "amount", "ppn", "cash_discount",
-		"is_return_invoice", "createdAt", "createdBy", "is_legacy",
+		"is_return_invoice", "createdAt", "createdBy", "is_legacy", "snapshot_invoice_due_date",
 	}
 	skbCols := []string{
 		"skb_number", "skb_date", "skb_status_id", "skb_type_id",
@@ -267,7 +270,9 @@ func RunImportSalesInvoiceCmd(args []string) {
 		} else {
 			var bid int64
 			var bname sql.NullString
-			err := tx.QueryRow("SELECT branch_id, branch_name FROM list_branch WHERE branch_code = ? LIMIT 1", branchCode).Scan(&bid, &bname)
+			var tCash int64
+			var tCredit int64
+			err := tx.QueryRow("SELECT branch_id, branch_name, term_cash, term_credit FROM list_branch WHERE branch_code = ? LIMIT 1", branchCode).Scan(&bid, &bname, &tCash, &tCredit)
 			if err == sql.ErrNoRows {
 				log.Printf("Missing branch: %s (row %d)\n", branchCode, rowIndex)
 				fmt.Println("Missing branch: ", branchCode)
@@ -277,7 +282,7 @@ func RunImportSalesInvoiceCmd(args []string) {
 				resp.Message = "db error querying branch: " + err.Error()
 				goto FINISH
 			}
-			nb := &Branch{ID: bid}
+			nb := &Branch{ID: bid, TermCash: tCash, TermCredit: tCredit}
 			if bname.Valid {
 				nb.Name = bname.String
 			}
@@ -540,6 +545,49 @@ func RunImportSalesInvoiceCmd(args []string) {
 			}
 		}
 
+		// branch billing (col 17)
+		branchBillingCodePtr := getCol(17)
+		if branchBillingCodePtr == nil || *branchBillingCodePtr == "" {
+			log.Printf("Missing branch code at row %d\n", rowIndex)
+			fmt.Printf("Missing branch code at row %d\n", rowIndex)
+			continue
+		}
+		branchBillingCode := *branchBillingCodePtr
+
+		var branchBilling *Branch
+		if b, ok := branchBillingCache[branchBillingCode]; ok {
+			branchBilling = b
+		} else {
+			var bid int64
+			var bname sql.NullString
+			err := tx.QueryRow("SELECT branch_id, branch_name FROM list_branch WHERE branch_code = ? LIMIT 1", branchBillingCode).Scan(&bid, &bname)
+			if err == sql.ErrNoRows {
+				log.Printf("Missing branch: %s (row %d)\n", branchBillingCode, rowIndex)
+				fmt.Println("Missing branch: ", branchBillingCode)
+				continue
+			} else if err != nil {
+				_ = tx.Rollback()
+				resp.Message = "db error querying branch: " + err.Error()
+				goto FINISH
+			}
+			nb := &Branch{ID: bid}
+			if bname.Valid {
+				nb.Name = bname.String
+			}
+			branchBillingCache[branchBillingCode] = nb
+			branchBilling = nb
+		}
+
+		var dueDate string
+		if p := getCol(18); p != nil {
+			dueDate = parseExcelDate(*p)
+		} else {
+			// if empty -> skip
+			// fmt.Println("Invoice date nil at row: ", rowIndex)
+			fmt.Println("due date dilewati")
+			continue
+		}
+
 		// issuer warehouse (query) -> get warehouse_id by branch_id and type 1
 		var issuerWarehouseID int64
 		err = tx.QueryRow("SELECT warehouse_id FROM list_warehouse WHERE branch_id = ? AND warehouse_type_id = 1 LIMIT 1", branch.ID).Scan(&issuerWarehouseID)
@@ -547,7 +595,7 @@ func RunImportSalesInvoiceCmd(args []string) {
 			// if no warehouse, we will attempt to create default warehouse for branch
 			if err == sql.ErrNoRows {
 				// try create warehouse named "Default"
-				res, errIns := tx.Exec("INSERT INTO list_warehouse (warehouse_name, branch_id, createdAt, createdBy) VALUES (?, ?, ?, ?)",
+				res, errIns := tx.Exec("INSERT INTO list_warehouse (warehouse_name, warehouse_type_id, branch_id, createdAt, createdBy) VALUES (?, 1, ?, ?, ?)",
 					"Default", branch.ID, createdAt, *adminID)
 				if errIns != nil {
 					_ = tx.Rollback()
@@ -576,30 +624,38 @@ func RunImportSalesInvoiceCmd(args []string) {
 		if _, ok := uniqueInvoiceList[invoiceNumber]; !ok {
 			uniqueInvoiceList[invoiceNumber] = true
 
+			var termDays int64
+			if paymentMethod == "KREDIT" {
+				termDays = branch.TermCredit
+			} else {
+				termDays = branch.TermCash
+			}
+
 			// build order row
 			orderRow := []interface{}{
-				outlet.ID,     // outlet_id
-				divisionID,    // division_id
-				branch.ID,     // branch_id
-				branch.ID,     // branch_billing_id
-				invoiceDate,   // sales_date
-				invoiceNumber, // sales_number
-				3,             // SalesOrderStatus::SELESAI (?) PHP used constant: use 3 or  something; adjust if needed
-				paymentMethod, // payment_method
-				sourceID,      // sales_source_id
-				salesTypeID,   // sales_type_id
-				salesmanID,    // salesman_id
-				regionID,      // region_id
-				nil,           // principal_id -> will pass nil or principalID.Int64
-				stampDuty,     // stamp_duty
-				0,             // is_ecatalogue
-				0,             // term_days
-				amount,        // amount
-				ppn,           // ppn
-				discount,      // cash_discount
-				createdAt,     // createdAt
-				*adminID,      // createdBy
-				1,             // is_legacy
+				outlet.ID,        // outlet_id
+				divisionID,       // division_id
+				branch.ID,        // branch_id
+				branchBilling.ID, // branch_billing_id
+				invoiceDate,      // sales_date
+				invoiceNumber,    // sales_number
+				3,                // SalesOrderStatus::SELESAI (?) PHP used constant: use 3 or  something; adjust if needed
+				paymentMethod,    // payment_method
+				sourceID,         // sales_source_id
+				salesTypeID,      // sales_type_id
+				salesmanID,       // salesman_id
+				regionID,         // region_id
+				nil,              // principal_id -> will pass nil or principalID.Int64
+				stampDuty,        // stamp_duty
+				0,                // is_ecatalogue
+				termDays,         // term_days
+				amount,           // amount
+				ppn,              // ppn
+				discount,         // cash_discount
+				createdAt,        // createdAt
+				*adminID,         // createdBy
+				1,                // is_legacy
+				dueDate,          // Due date
 			}
 			// principal
 			if principalID.Valid {
@@ -614,7 +670,7 @@ func RunImportSalesInvoiceCmd(args []string) {
 				outlet.ID,
 				divisionID,
 				branch.ID,
-				branch.ID,
+				branchBilling.ID,
 				invoiceDate,
 				invoiceNumber,
 				note,
@@ -628,7 +684,7 @@ func RunImportSalesInvoiceCmd(args []string) {
 				stampDuty,
 				0, // is_ecatalogue
 				isB2B,
-				0, // term_days
+				termDays, // term_days
 				amount,
 				ppn,
 				discount,
@@ -636,6 +692,7 @@ func RunImportSalesInvoiceCmd(args []string) {
 				createdAt,
 				*adminID,
 				1,
+				dueDate, // Due date
 			}
 			if principalID.Valid {
 				invRow[13] = principalID.Int64
