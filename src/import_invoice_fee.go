@@ -102,7 +102,7 @@ func RunImportSalesInvoiceFeeCmd(args []string) {
 
 		// --- lookup invoice_id ---
 		var invoiceID int64
-		err = tx.QueryRow("SELECT sales_invoice_id FROM list_sales_invoice WHERE invoice_number = ? LIMIT 1", *invoiceNumber).Scan(&invoiceID)
+		err = tx.QueryRow("SELECT sales_invoice_id FROM list_sales_invoice WHERE sales_invoice_number = ? LIMIT 1", *invoiceNumber).Scan(&invoiceID)
 		if err == sql.ErrNoRows {
 			fmt.Printf("Invoice tidak ditemukan: %s\n", *invoiceNumber)
 			continue

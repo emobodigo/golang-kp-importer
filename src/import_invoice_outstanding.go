@@ -107,7 +107,7 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 		"salesman_id", "region_id", "principal_id",
 		"stamp_duty", "is_ecatalogue", "term_days",
 		"amount", "ppn", "cash_discount",
-		"createdAt", "createdBy", "is_legacy",
+		"createdAt", "createdBy", "is_legacy", "snapshot_sales_due_date",
 	}
 	invoiceCols := []string{
 		"outlet_id", "division_id", "branch_id", "branch_billing_id",
@@ -116,13 +116,14 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 		"sales_invoice_type_id", "salesman_id", "region_id",
 		"principal_id", "stamp_duty", "is_ecatalogue",
 		"is_b2b", "term_days", "amount", "ppn", "cash_discount",
-		"is_return_invoice", "createdAt", "createdBy", "is_legacy",
+		"is_return_invoice", "createdAt", "createdBy", "is_legacy", "snapshot_invoice_due_date",
 	}
 	skbCols := []string{
 		"skb_number", "skb_date", "skb_status_id", "skb_type_id",
 		"issuer_warehouse_id", "issuer_type_id", "issuer_id", "issuer",
 		"destination_type_id", "destination_id", "destination",
-		"is_complete", "createdAt", "createdBy",
+		"is_complete", "createdAt", "createdBy", "division_id", "approvedAt", "approvedBy",
+		"pharmacist_verified_by", "pharmacist_verified_at",
 	}
 
 	batchOrderRows := [][]interface{}{}
@@ -180,6 +181,10 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 			continue
 		}
 		invoiceNumber := *invoiceNumberPtr
+
+		if invoiceNumber == "Freetext" {
+			continue
+		}
 
 		var existingID int64
 		errInv := tx.QueryRow("SELECT sales_invoice_id FROM list_sales_invoice WHERE sales_invoice_number = ? LIMIT 1", invoiceNumber).Scan(&existingID)
@@ -251,7 +256,9 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 		} else {
 			var bid int64
 			var bname sql.NullString
-			err := tx.QueryRow("SELECT branch_id, branch_name FROM list_branch WHERE branch_code = ? LIMIT 1", branchCode).Scan(&bid, &bname)
+			var tCash int64
+			var tCredit int64
+			err := tx.QueryRow("SELECT branch_id, branch_name, term_cash, term_credit FROM list_branch WHERE branch_code = ? LIMIT 1", branchCode).Scan(&bid, &bname, &tCash, &tCredit)
 			if err == sql.ErrNoRows {
 				log.Printf("Missing branch: %s (row %d)\n", branchCode, rowIndex)
 				fmt.Println("Missing branch: ", branchCode)
@@ -261,7 +268,7 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 				resp.Message = "db error querying branch: " + err.Error()
 				goto FINISH
 			}
-			nb := &Branch{ID: bid}
+			nb := &Branch{ID: bid, TermCash: tCash, TermCredit: tCredit}
 			if bname.Valid {
 				nb.Name = bname.String
 			}
@@ -498,6 +505,28 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 			skbTypeID = 11 // SKBType::TENDER_OUTLET
 		}
 
+		invoiceDateStr := invoiceDate // misal hasil dari parseExcelDate
+
+		// parse string ke time.Time
+		invoiceTime, err := time.Parse("2006-01-02", invoiceDateStr)
+		if err != nil {
+			fmt.Println("error parsing date:", err)
+			return
+		}
+
+		var termDays int64
+		if paymentMethod == "Kredit" {
+			termDays = branch.TermCredit
+		} else {
+			termDays = branch.TermCash
+		}
+
+		// tambahkan termDays ke invoice date
+		dueDateObj := invoiceTime.AddDate(0, 0, int(termDays))
+
+		// kalau mau format jadi string lagi
+		dueDate := dueDateObj.Format("2006-01-02")
+
 		// issuer warehouse (query) -> get warehouse_id by branch_id and type 1
 		var issuerWarehouseID int64
 		err = tx.QueryRow("SELECT warehouse_id FROM list_warehouse WHERE branch_id = ? AND warehouse_type_id = 1 LIMIT 1", branch.ID).Scan(&issuerWarehouseID)
@@ -505,7 +534,7 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 			// if no warehouse, we will attempt to create default warehouse for branch
 			if err == sql.ErrNoRows {
 				// try create warehouse named "Default"
-				res, errIns := tx.Exec("INSERT INTO list_warehouse (warehouse_name, branch_id, createdAt, createdBy) VALUES (?, ?, ?, ?)",
+				res, errIns := tx.Exec("INSERT INTO list_warehouse (warehouse_name, warehouse_type_id, branch_id, createdAt, createdBy) VALUES (?, 1, ?, ?, ?)",
 					"Default", branch.ID, createdAt, *adminID)
 				if errIns != nil {
 					_ = tx.Rollback()
@@ -542,7 +571,7 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 				branch.ID,     // branch_billing_id
 				invoiceDate,   // sales_date
 				invoiceNumber, // sales_number
-				3,             // SalesOrderStatus::SELESAI (?) PHP used constant: use 3 or  something; adjust if needed
+				2,             // SalesOrderStatus::SELESAI (?) PHP used constant: use 3 or  something; adjust if needed
 				paymentMethod, // payment_method
 				sourceID,      // sales_source_id
 				salesTypeID,   // sales_type_id
@@ -551,13 +580,14 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 				nil,           // principal_id -> will pass nil or principalID.Int64
 				stampDuty,     // stamp_duty
 				0,             // is_ecatalogue
-				0,             // term_days
+				termDays,      // term_days
 				amount,        // amount
 				ppn,           // ppn
 				discount,      // cash_discount
 				createdAt,     // createdAt
 				*adminID,      // createdBy
 				1,             // is_legacy
+				dueDate,       // Due date
 			}
 			// principal
 			if principalID.Valid {
@@ -576,7 +606,7 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 				invoiceDate,
 				invoiceNumber,
 				note,
-				3, // SalesInvoiceStatus::SELESAI - set 3 or adjust
+				2, // SalesInvoiceStatus::SELESAI - set 3 or adjust
 				paymentMethod,
 				sourceID,
 				salesTypeID,
@@ -586,7 +616,7 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 				stampDuty,
 				0, // is_ecatalogue
 				isB2B,
-				0, // term_days
+				termDays, // term_days
 				amount,
 				ppn,
 				discount,
@@ -594,6 +624,7 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 				createdAt,
 				*adminID,
 				1,
+				dueDate, // Due date
 			}
 			if principalID.Valid {
 				invRow[13] = principalID.Int64
@@ -616,6 +647,11 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 				1,           // is_complete
 				createdAt,
 				*adminID,
+				divisionID,
+				createdAt,
+				*adminID,
+				*adminID,
+				createdAt,
 			}
 			batchSkbRows = append(batchSkbRows, skbRow)
 		}

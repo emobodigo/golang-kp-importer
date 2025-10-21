@@ -578,15 +578,37 @@ func RunImportSalesInvoiceCmd(args []string) {
 			branchBilling = nb
 		}
 
-		var dueDate string
-		if p := getCol(18); p != nil {
-			dueDate = parseExcelDate(*p)
-		} else {
-			// if empty -> skip
-			// fmt.Println("Invoice date nil at row: ", rowIndex)
-			fmt.Println("due date dilewati")
-			continue
+		invoiceDateStr := invoiceDate // misal hasil dari parseExcelDate
+
+		// parse string ke time.Time
+		invoiceTime, err := time.Parse("2006-01-02", invoiceDateStr)
+		if err != nil {
+			fmt.Println("error parsing date:", err)
+			return
 		}
+
+		var termDays int64
+		if paymentMethod == "Kredit" {
+			termDays = branch.TermCredit
+		} else {
+			termDays = branch.TermCash
+		}
+
+		// tambahkan termDays ke invoice date
+		dueDateObj := invoiceTime.AddDate(0, 0, int(termDays))
+
+		// kalau mau format jadi string lagi
+		dueDate := dueDateObj.Format("2006-01-02")
+
+		// var dueDate string
+		// if p := getCol(18); p != nil {
+		// 	dueDate = parseExcelDate(*p)
+		// } else {
+		// 	// if empty -> skip
+		// 	// fmt.Println("Invoice date nil at row: ", rowIndex)
+		// 	fmt.Println("due date dilewati")
+		// 	continue
+		// }
 
 		// issuer warehouse (query) -> get warehouse_id by branch_id and type 1
 		var issuerWarehouseID int64
@@ -623,13 +645,6 @@ func RunImportSalesInvoiceCmd(args []string) {
 		// skip duplicates in same file processing
 		if _, ok := uniqueInvoiceList[invoiceNumber]; !ok {
 			uniqueInvoiceList[invoiceNumber] = true
-
-			var termDays int64
-			if paymentMethod == "KREDIT" {
-				termDays = branch.TermCredit
-			} else {
-				termDays = branch.TermCash
-			}
 
 			// build order row
 			orderRow := []interface{}{

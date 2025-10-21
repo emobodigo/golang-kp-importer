@@ -92,6 +92,7 @@ func RunImportSalesInvoiceReturnCmd(args []string) {
 	batchStbRows := [][]interface{}{}
 
 	inserted := 0
+	duplicateNumberCount := 0
 
 	for i := 1; i < len(rows); i++ { // skip header
 		cols := rows[i]
@@ -164,6 +165,7 @@ func RunImportSalesInvoiceReturnCmd(args []string) {
 		}
 		if exists > 0 {
 			fmt.Println("return number sudah ada: ", invoiceNumber)
+			duplicateNumberCount++
 			continue
 		}
 
@@ -263,7 +265,7 @@ func RunImportSalesInvoiceReturnCmd(args []string) {
 
 FINISH:
 	printResp(resp)
-	log.Printf("Import Sales Invoice Return complete: %d rows, time=%.4fs\n", inserted, time.Since(start).Seconds())
+	log.Printf("Import Sales Invoice Return complete: %d rows, duplicate: %d time=%.4fs\n", inserted, duplicateNumberCount, time.Since(start).Seconds())
 }
 
 // flushInvoiceReturn inserts batch to list_invoice_return

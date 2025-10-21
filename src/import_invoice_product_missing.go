@@ -149,6 +149,7 @@ func RunImportSalesInvoiceProductMissingCmd(args []string) {
 	invoiceCache := map[string]struct {
 		ID       int64
 		Salesman int64
+		TypeInv  int64
 	}{}
 	skbCache := map[string]int64{}
 	productCache := map[string]int64{}
@@ -196,9 +197,9 @@ func RunImportSalesInvoiceProductMissingCmd(args []string) {
 		// invoice
 		invData, ok := invoiceCache[invoiceNumber]
 		if !ok {
-			var siID, salesmanID sql.NullInt64
-			err := tx.QueryRow("SELECT sales_invoice_id, salesman_id FROM list_sales_invoice WHERE sales_invoice_number = ? LIMIT 1", invoiceNumber).
-				Scan(&siID, &salesmanID)
+			var siID, salesmanID, typeInv sql.NullInt64
+			err := tx.QueryRow("SELECT sales_invoice_id, salesman_id, sales_invoice_type_id FROM list_sales_invoice WHERE sales_invoice_number = ? LIMIT 1", invoiceNumber).
+				Scan(&siID, &salesmanID, &typeInv)
 			if err == sql.ErrNoRows {
 				log.Printf("missing invoice: %s", invoiceNumber)
 				fmt.Println("missing invoice: ", invoiceNumber)
@@ -211,7 +212,8 @@ func RunImportSalesInvoiceProductMissingCmd(args []string) {
 			invData = struct {
 				ID       int64
 				Salesman int64
-			}{ID: siID.Int64, Salesman: salesmanID.Int64}
+				TypeInv  int64
+			}{ID: siID.Int64, Salesman: salesmanID.Int64, TypeInv: typeInv.Int64}
 			invoiceCache[invoiceNumber] = invData
 		}
 
@@ -291,20 +293,53 @@ func RunImportSalesInvoiceProductMissingCmd(args []string) {
 			fmt.Println("order sudah pernah insert")
 			continue
 		}
-		resOrder, err := stmtOrder.Exec(orderID, productID, price, discVal, discRVal, discPVal, discR, discP, dpp, int64(qty))
-		if err != nil {
-			_ = tx.Rollback()
-			exitWith("insert order item failed: " + err.Error())
-		}
-		groupIDOrder, err := resOrder.LastInsertId()
-		if err != nil {
-			_ = tx.Rollback()
-			exitWith("failed to get last insert id: " + err.Error())
-		}
-		if qtyExtra > 0 {
-			if _, err := stmtOrderExtra.Exec(orderID, productID, price, discVal, discRVal, discPVal, discR, discP, int64(qtyExtra), groupIDOrder); err != nil {
+		var qtyOrder, qtyExtraOrder int64
+		errOrd := tx.QueryRow("SELECT qty, qty_extra FROM rel_sales_order_item WHERE sales_order_id = ? AND product_id = ? AND qty != 0", orderID, productID).Scan(&qtyOrder, &qtyExtraOrder)
+		if errOrd == sql.ErrNoRows {
+			resOrder, err := stmtOrder.Exec(orderID, productID, price, discVal, discRVal, discPVal, discR, discP, dpp, int64(qty))
+			if err != nil {
 				_ = tx.Rollback()
-				exitWith("insert order extra failed: " + err.Error())
+				exitWith("insert order item failed: " + err.Error())
+			}
+			groupIDOrder, err := resOrder.LastInsertId()
+			if err != nil {
+				_ = tx.Rollback()
+				exitWith("failed to get last insert id: " + err.Error())
+			}
+			if qtyExtra > 0 {
+				if _, err := stmtOrderExtra.Exec(orderID, productID, price, discVal, discRVal, discPVal, discR, discP, int64(qtyExtra), groupIDOrder); err != nil {
+					_ = tx.Rollback()
+					exitWith("insert order extra failed: " + err.Error())
+				}
+			}
+		} else {
+			newQty := qty + float64(qtyOrder)
+			_, errIns := tx.Exec("UPDATE rel_sales_order_item SET qty = ? WHERE sales_order_id = ? AND product_id = ? AND qty_extra = 0", newQty, orderID, productID)
+			if errIns != nil {
+				_ = tx.Rollback()
+				exitWith("update order item failed: " + err.Error())
+			}
+			if qtyExtra > 0 {
+				var rel_id int64
+				var extra int64
+				errInv := tx.QueryRow("SELECT rel_id, qty_extra FROM rel_sales_order_item WHERE sales_order_id = ? AND product_id = ? AND qty = 0", invData.ID, productID).Scan(&rel_id, &extra)
+				if errInv == nil {
+					newQty := qtyExtra + float64(extra)
+					_, errIns := tx.Exec("UPDATE rel_sales_order_item SET qty_extra = ? WHERE rel_id", newQty, rel_id)
+					if errIns != nil {
+						_ = tx.Rollback()
+						exitWith("update order item failed: " + err.Error())
+					}
+				} else {
+					var grpId int64
+					errInv := tx.QueryRow("SELECT rel_id FROM rel_sales_order_item WHERE sales_order_id = ? AND product_id = ? AND qty_extra = 0", invData.ID, productID).Scan(&grpId)
+					if errInv == nil {
+						if _, err := stmtOrderExtra.Exec(orderID, productID, price, discVal, discRVal, discPVal, discR, discP, int64(qtyExtra), grpId); err != nil {
+							_ = tx.Rollback()
+							exitWith("insert order extra failed: " + err.Error())
+						}
+					}
+				}
 			}
 		}
 
@@ -320,20 +355,114 @@ func RunImportSalesInvoiceProductMissingCmd(args []string) {
 			// Sudah ada, skip insert
 			continue
 		}
-		res, err := stmtInvoice.Exec(invData.ID, productID, invData.Salesman, price, batch, discVal, discRVal, discPVal, discR, discP, dpp, int64(qty))
-		if err != nil {
-			_ = tx.Rollback()
-			exitWith("insert invoice item failed: " + err.Error())
-		}
-		groupID, err := res.LastInsertId()
-		if err != nil {
-			_ = tx.Rollback()
-			exitWith("failed to get last insert id: " + err.Error())
-		}
-		if qtyExtra > 0 {
-			if _, err := stmtInvoiceExtra.Exec(invData.ID, productID, invData.Salesman, price, batch, discVal, discRVal, discPVal, discR, discP, int64(qtyExtra), groupID); err != nil {
-				_ = tx.Rollback()
-				exitWith("insert invoice extra failed: " + err.Error())
+		var qtyInvoice, qtyExtraInvoice int64
+		if invData.TypeInv != 2 {
+			errInv := tx.QueryRow("SELECT qty, qty_extra FROM rel_sales_invoice_item WHERE sales_invoice_id = ? AND product_id = ? AND qty != 0", invData.ID, productID).Scan(&qtyInvoice, &qtyExtraInvoice)
+			if errInv == sql.ErrNoRows {
+				res, err := stmtInvoice.Exec(
+					invData.ID, productID, invData.Salesman, price, nil,
+					discVal, discRVal, discPVal, discR, discP, dpp, int64(qty),
+				)
+				if err != nil {
+					_ = tx.Rollback()
+					exitWith("insert invoice item failed: " + err.Error())
+				}
+
+				// Ambil last inserted ID (group_id)
+				groupID, err := res.LastInsertId()
+				if err != nil {
+					_ = tx.Rollback()
+					exitWith("failed to get last insert id: " + err.Error())
+				}
+				if qtyExtra > 0 {
+					if _, err := stmtInvoiceExtra.Exec(invData.ID, productID, invData.Salesman, price, nil, discVal, discRVal, discPVal, discR, discP, int64(qtyExtra), groupID); err != nil {
+						_ = tx.Rollback()
+						exitWith("insert invoice extra failed: " + err.Error())
+					}
+				}
+			} else {
+				newQty := qty + float64(qtyInvoice)
+				_, errIns := tx.Exec("UPDATE rel_sales_invoice_item SET qty = ? WHERE sales_invoice_id = ? AND product_id = ? AND qty_extra = 0", newQty, invData.ID, productID)
+				if errIns != nil {
+					_ = tx.Rollback()
+					exitWith("update invoice item failed: " + err.Error())
+				}
+				if qtyExtra > 0 {
+					var rel_id int64
+					var extra int64
+					errInv := tx.QueryRow("SELECT rel_id, qty_extra FROM rel_sales_invoice_item WHERE sales_invoice_id = ? AND product_id = ? AND qty = 0", invData.ID, productID).Scan(&rel_id, &extra)
+					if errInv == nil {
+						newQty := qtyExtra + float64(extra)
+						_, errIns := tx.Exec("UPDATE rel_sales_invoice_item SET qty_extra = ? WHERE rel_id = ?", newQty, rel_id)
+						if errIns != nil {
+							_ = tx.Rollback()
+							exitWith("update invoice item failed: " + errIns.Error())
+						}
+					} else {
+						var grpId int64
+						errInv := tx.QueryRow("SELECT rel_id FROM rel_sales_invoice_item WHERE sales_invoice_id = ? AND product_id = ? AND qty_extra = 0", invData.ID, productID).Scan(&grpId)
+						if errInv == nil {
+							if _, err := stmtInvoiceExtra.Exec(invData.ID, productID, invData.Salesman, price, nil, discVal, discRVal, discPVal, discR, discP, int64(qtyExtra), grpId); err != nil {
+								_ = tx.Rollback()
+								exitWith("insert invoice extra failed: " + err.Error())
+							}
+						}
+					}
+				}
+			}
+		} else {
+			errInv := tx.QueryRow("SELECT qty, qty_extra FROM rel_sales_invoice_item WHERE sales_invoice_id = ? AND product_id = ? AND batch_number = ? AND qty != 0", invData.ID, productID, batch).Scan(&qtyInvoice, &qtyExtraInvoice)
+			if errInv == sql.ErrNoRows {
+				res, err := stmtInvoice.Exec(
+					invData.ID, productID, invData.Salesman, price, batch,
+					discVal, discRVal, discPVal, discR, discP, dpp, int64(qty),
+				)
+				if err != nil {
+					_ = tx.Rollback()
+					exitWith("insert invoice item failed: " + err.Error())
+				}
+
+				// Ambil last inserted ID (group_id)
+				groupID, err := res.LastInsertId()
+				if err != nil {
+					_ = tx.Rollback()
+					exitWith("failed to get last insert id: " + err.Error())
+				}
+				if qtyExtra > 0 {
+					if _, err := stmtInvoiceExtra.Exec(invData.ID, productID, invData.Salesman, price, batch, discVal, discRVal, discPVal, discR, discP, int64(qtyExtra), groupID); err != nil {
+						_ = tx.Rollback()
+						exitWith("insert invoice extra failed: " + err.Error())
+					}
+				}
+			} else {
+				newQty := qty + float64(qtyInvoice)
+				_, errIns := tx.Exec("UPDATE rel_sales_invoice_item SET qty = ? WHERE sales_invoice_id = ? AND product_id = ? AND qty_extra = 0", newQty, invData.ID, productID)
+				if errIns != nil {
+					_ = tx.Rollback()
+					exitWith("update invoice item failed: " + err.Error())
+				}
+				if qtyExtra > 0 {
+					var rel_id int64
+					var extra int64
+					errInv := tx.QueryRow("SELECT rel_id, qty_extra FROM rel_sales_invoice_item WHERE sales_invoice_id = ? AND product_id = ? AND qty = 0", invData.ID, productID).Scan(&rel_id, &extra)
+					if errInv == nil {
+						newQty := qtyExtra + float64(extra)
+						_, errIns := tx.Exec("UPDATE rel_sales_invoice_item SET qty_extra = ? WHERE rel_id = ?", newQty, rel_id)
+						if errIns != nil {
+							_ = tx.Rollback()
+							exitWith("update invoice item failed: " + errIns.Error())
+						}
+					} else {
+						var grpId int64
+						errInv := tx.QueryRow("SELECT rel_id FROM rel_sales_invoice_item WHERE sales_invoice_id = ? AND product_id = ? AND qty_extra = 0", invData.ID, productID).Scan(&grpId)
+						if errInv == nil {
+							if _, err := stmtInvoiceExtra.Exec(invData.ID, productID, invData.Salesman, price, batch, discVal, discRVal, discPVal, discR, discP, int64(qtyExtra), grpId); err != nil {
+								_ = tx.Rollback()
+								exitWith("insert invoice extra failed: " + err.Error())
+							}
+						}
+					}
+				}
 			}
 		}
 
