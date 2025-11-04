@@ -242,12 +242,25 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 
 		productID, ok := productCache[productCode]
 		if !ok {
+			// if productCode == "013632" {
+			// 	productCode = "015717"
+			// }
+			// if productCode == "011615" {
+			// 	productCode = "015588"
+			// }
+			// if productCode == "013634" {
+			// 	productCode = "015719"
+			// }
+			// if productCode == "013631" {
+			// 	productCode = "015716"
+			// }
 			err := tx.QueryRow("SELECT product_id FROM list_product WHERE product_code = ? LIMIT 1", productCode).Scan(&productID)
 			if err == sql.ErrNoRows {
 				res, err2 := tx.Exec("INSERT INTO list_product (product_code, product_name, createdAt, createdBy) VALUES (?, ?, NOW(), ?)",
 					productCode, productCode, *adminID)
 				if err2 != nil {
 					_ = tx.Rollback()
+					fmt.Println(productCode)
 					exitWith("error inserting product: " + err2.Error())
 				}
 				last, _ := res.LastInsertId()
@@ -326,10 +339,10 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 				errInv := tx.QueryRow("SELECT rel_id, qty_extra FROM rel_sales_order_item WHERE sales_order_id = ? AND product_id = ? AND qty = 0", invData.ID, productID).Scan(&rel_id, &extra)
 				if errInv == nil {
 					newQty := qtyExtra + float64(extra)
-					_, errIns := tx.Exec("UPDATE rel_sales_order_item SET qty_extra = ? WHERE rel_id", newQty, rel_id)
+					_, errIns := tx.Exec("UPDATE rel_sales_order_item SET qty_extra = ? WHERE rel_id = ?", newQty, rel_id)
 					if errIns != nil {
 						_ = tx.Rollback()
-						exitWith("update order item failed: " + err.Error())
+						exitWith("update order item failed: " + errIns.Error())
 					}
 				} else {
 					var grpId int64
@@ -395,7 +408,7 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 					errInv := tx.QueryRow("SELECT rel_id, qty_extra FROM rel_sales_invoice_item WHERE sales_invoice_id = ? AND product_id = ? AND qty = 0", invData.ID, productID).Scan(&rel_id, &extra)
 					if errInv == nil {
 						newQty := qtyExtra + float64(extra)
-						_, errIns := tx.Exec("UPDATE rel_sales_invoice_item SET qty_extra = ? WHERE rel_id", newQty, rel_id)
+						_, errIns := tx.Exec("UPDATE rel_sales_invoice_item SET qty_extra = ? WHERE rel_id = ?", newQty, rel_id)
 						if errIns != nil {
 							_ = tx.Rollback()
 							exitWith("update invoice item failed: " + err.Error())
@@ -449,7 +462,7 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 					errInv := tx.QueryRow("SELECT rel_id, qty_extra FROM rel_sales_invoice_item WHERE sales_invoice_id = ? AND product_id = ? AND qty = 0", invData.ID, productID).Scan(&rel_id, &extra)
 					if errInv == nil {
 						newQty := qtyExtra + float64(extra)
-						_, errIns := tx.Exec("UPDATE rel_sales_invoice_item SET qty_extra = ? WHERE rel_id", newQty, rel_id)
+						_, errIns := tx.Exec("UPDATE rel_sales_invoice_item SET qty_extra = ? WHERE rel_id = ?", newQty, rel_id)
 						if errIns != nil {
 							_ = tx.Rollback()
 							exitWith("update invoice item failed: " + err.Error())

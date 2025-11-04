@@ -424,7 +424,7 @@ func RunImportSalesInvoiceProductCmd(args []string) {
 					errInv := tx.QueryRow("SELECT rel_id, qty_extra FROM rel_sales_invoice_item WHERE sales_invoice_id = ? AND product_id = ? AND qty = 0", invData.ID, productID).Scan(&rel_id, &extra)
 					if errInv == nil {
 						newQty := qtyExtra + float64(extra)
-						_, errIns := tx.Exec("UPDATE rel_sales_invoice_item SET qty_extra = ? WHERE rel_id", newQty, rel_id)
+						_, errIns := tx.Exec("UPDATE rel_sales_invoice_item SET qty_extra = ? WHERE rel_id = ?", newQty, rel_id)
 						if errIns != nil {
 							_ = tx.Rollback()
 							exitWith("update invoice item failed: " + err.Error())

@@ -100,7 +100,7 @@ func RunImportSKBCentralIntransitCmd(args []string) {
 		"skb_number", "skb_date", "skb_status_id", "skb_type_id",
 		"issuer_warehouse_id", "issuer_type_id", "issuer_id", "issuer",
 		"destination_type_id", "destination_id", "destination", "skb_note",
-		"is_complete", "createdAt", "createdBy", "division_id",
+		"is_complete", "createdAt", "createdBy", "division_id", "approvedBy",
 	}
 	batchRows := [][]interface{}{}
 	insertedCount := 0
@@ -307,6 +307,7 @@ func RunImportSKBCentralIntransitCmd(args []string) {
 			createdAt,                    // createdAt
 			*adminID,                     // createdBy
 			divisionId,
+			*adminID,
 		}
 		batchRows = append(batchRows, rowVals)
 

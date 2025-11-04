@@ -334,8 +334,8 @@ func RunImportSettlementCmd(args []string) {
 			INSERT INTO list_debt_collection (
 				debt_collection_draft_number, debt_collection_number, debt_collection_date,
 				debt_collection_status_id, debt_collection_type_id, collector,
-				branch_id, region_id, createdAt, createdBy, approvedAt, approvedBy
-			) VALUES (?, ?, ?, 3, 1, ?, ?, ?, NOW(), ?, NOW(), ?)
+				branch_id, region_id, createdAt, createdBy, approvedAt, approvedBy, note
+			) VALUES (?, ?, ?, 3, 1, ?, ?, ?, NOW(), ?, NOW(), ?, '')
 		`, draftDTHNumber, dthNumber, dthDate, collector, invoice.BranchID, region.RegionID, *adminID, *adminID)
 		if err != nil {
 			_ = tx.Rollback()
@@ -438,8 +438,8 @@ func RunImportSettlementCmd(args []string) {
 			INSERT INTO list_debt_collection (
 				debt_collection_draft_number, debt_collection_number, debt_collection_date,
 				debt_collection_status_id, debt_collection_type_id, collector,
-				branch_id, region_id, createdAt, createdBy, approvedAt, approvedBy
-			) VALUES (?, ?, ?, 3, 1, ?, ?, ?, NOW(), ?, NOW(), ?)
+				branch_id, region_id, createdAt, createdBy, approvedAt, approvedBy, note
+			) VALUES (?, ?, ?, 3, 1, ?, ?, ?, NOW(), ?, NOW(), ?, '')
 		`, draftDTHNumber, dthNumber, giroGroup.DTHDate, giroGroup.Collector, giroGroup.BranchID, giroGroup.RegionID, *adminID, *adminID)
 		if err != nil {
 			_ = tx.Rollback()

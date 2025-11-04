@@ -171,7 +171,7 @@ func importDaftarProduk(f *excelize.File, tx *sql.Tx, batchSize int, adminID int
 		"weight", "weight_unit", "volume", "volume_unit", "biggest_conv",
 		"biggest_unit", "smallest_conv", "smallest_unit", "sale_unit", "manufacturer",
 		"default_margin_principal", "lock_discount", "lock_sale", "stock_level_product", "form_id",
-		"remark", "is_need_expired", "required_serial_number", "product_het", "default_hna",
+		"remark", "is_need_expired", "required_serial_number", "product_het", "default_hna", "is_multiplicative_discount_central", "allow_discount_central", "is_consign_import",
 		"createdAt", "createdBy",
 	}
 
@@ -478,6 +478,18 @@ func importDaftarProduk(f *excelize.File, tx *sql.Tx, batchSize int, adminID int
 		if p := getCol(43); p != nil && strings.EqualFold(*p, "Aktif") {
 			productStatus = 2
 		}
+		availableDiscountCentral := 1
+		if p := getCol(44); p != nil && strings.EqualFold(*p, "Tidak") {
+			availableDiscountCentral = 0
+		}
+		discountLeveling := 1
+		if p := getCol(45); p != nil && strings.EqualFold(*p, "Tidak") {
+			discountLeveling = 0
+		}
+		isConsignImport := 1
+		if p := getCol(46); p != nil && strings.EqualFold(*p, "TIDAK") {
+			isConsignImport = 0
+		}
 
 		// duplicate code check
 		if productCodeStr != "" {
@@ -594,6 +606,9 @@ func importDaftarProduk(f *excelize.File, tx *sql.Tx, batchSize int, adminID int
 			requiredSerialNumber,
 			productHet,
 			defaultHna,
+			discountLeveling,
+			availableDiscountCentral,
+			isConsignImport,
 			createdAt,
 			adminID,
 		)

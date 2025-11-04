@@ -571,7 +571,7 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 				branch.ID,     // branch_billing_id
 				invoiceDate,   // sales_date
 				invoiceNumber, // sales_number
-				2,             // SalesOrderStatus::SELESAI (?) PHP used constant: use 3 or  something; adjust if needed
+				3,             // SalesOrderStatus::SELESAI (?) PHP used constant: use 3 or  something; adjust if needed
 				paymentMethod, // payment_method
 				sourceID,      // sales_source_id
 				salesTypeID,   // sales_type_id

@@ -32,6 +32,8 @@ func main() {
 		src.RunImportSalesInvoiceReturnCmd(os.Args[2:])
 	case "invoice-return-product":
 		src.RunImportSalesInvoiceReturnProductCmd(os.Args[2:])
+	case "invoice-return-product-outstanding":
+		src.RunImportSalesInvoiceReturnProductOutstandingCmd(os.Args[2:])
 	case "invoice-outstanding":
 		src.RunImportSalesInvoiceOutstandingCmd(os.Args[2:])
 	case "invoice-outstanding-product":

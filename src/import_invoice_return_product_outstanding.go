@@ -13,7 +13,7 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-func RunImportSalesInvoiceReturnProductCmd(args []string) {
+func RunImportSalesInvoiceReturnProductOutstandingCmd(args []string) {
 	fs := flag.NewFlagSet("invoice-return-product", flag.ExitOnError)
 	filePath := fs.String("file", "./uploads/invoice_return_product.xlsx", "path to xlsx file")
 	dsn := fs.String("dsn", "", "mysql DSN, e.g. user:pass@tcp(127.0.0.1:3306)/dbname?parseTime=true")
@@ -115,7 +115,7 @@ func RunImportSalesInvoiceReturnProductCmd(args []string) {
 		"return_invoice_id", "stb_id", "product_id", "unit", "qty", "qty_extra",
 		"quoted_price", "discount_price", "discount_routine_branch", "discount_routine_central",
 		"discount_program_branch", "discount_program_central", "discount_extra", "hna",
-		"total_price", "batch_number", "serial_number", "expired_date", "reference_type_id", "reference_id", "temp_iteration",
+		"total_price", "batch_number", "serial_number", "expired_date", "reference_type_id", "reference_id",
 	}
 	batchRows := [][]interface{}{}
 	insertedCount := 0
@@ -234,6 +234,20 @@ func RunImportSalesInvoiceReturnProductCmd(args []string) {
 			productCache[productCode] = productID
 		}
 
+		var count int
+		err := tx.QueryRow("SELECT COUNT(1) FROM rel_return_invoice_stb WHERE stb_id = ? AND product_id = ? AND temp_iteration = 1", stb.STBID, productID).Scan(&count)
+		if err != nil {
+			_ = tx.Rollback()
+			resp.Message = "error querying product: " + err.Error()
+			goto FINISH
+		}
+
+		if count > 0 {
+			// Sudah ada, skip insert
+			fmt.Println("order sudah pernah insert")
+			continue
+		}
+
 		qty := denormInt(qtyPtr)
 		qtyExtra := denormInt(qtyExtraPtr)
 		batchNumber := ""
@@ -277,7 +291,6 @@ func RunImportSalesInvoiceReturnProductCmd(args []string) {
 				expiredDate,                   // expired_date
 				1,                             // reference_type_id
 				nil,                           // reference_id
-				1,                             // temp_iteration
 			}
 			batchRows = append(batchRows, rowVals)
 		}
@@ -326,10 +339,3 @@ FINISH:
 }
 
 // Helper structs
-type ReturnInvoiceData struct {
-	ReturnInvoiceID int64
-}
-
-type STBData struct {
-	STBID int64
-}
