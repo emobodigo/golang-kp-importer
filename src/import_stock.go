@@ -84,7 +84,7 @@ func RunImportInitialStockCmd(args []string) {
 	}
 
 	// batch containers
-	txCols := []string{"tx_date", "tx_type_id", "product_id", "warehouse_id", "is_consignment", "unit", "debit", "credit"}
+	txCols := []string{"tx_date", "tx_type_id", "product_id", "warehouse_id", "is_consignment", "unit", "debit", "credit", "batch_id"}
 	batchTxRows := [][]interface{}{}
 	// rel pending aligns with batchTxRows order; we store batch_id & qty for each pending tx row
 	type relPending struct {
@@ -250,6 +250,7 @@ func RunImportInitialStockCmd(args []string) {
 			1,             // unit (literal 1 as in PHP)
 			stockSale,     // debit
 			0,             // credit
+			batchID,       // batch_id
 		}
 		batchTxRows = append(batchTxRows, rowVals)
 		batchRelPending = append(batchRelPending, relPending{batchID: batchID, qty: stockSale})

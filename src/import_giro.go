@@ -88,6 +88,7 @@ func RunImportGiroCmd(args []string) {
 		"giro_number",
 		"outlet_id",
 		"giro_amount",
+		"giro_bank",
 		"due_date",
 		"status_id",
 		"createdAt",
@@ -126,6 +127,7 @@ func RunImportGiroCmd(args []string) {
 
 		outletCodePtr := getCol(1)
 		giroAmountPtr := getCol(2)
+		giroBankPtr := getCol(3)
 		dueDatePtr := getCol(4)
 		giroStatusPtr := getCol(5)
 
@@ -136,6 +138,8 @@ func RunImportGiroCmd(args []string) {
 		if outletCodePtr != nil {
 			outletID = denormInt(outletCodePtr)
 		}
+
+		giroBank := strings.TrimSpace(*giroBankPtr)
 
 		// Parse giro amount
 		giroAmount := denormFloat(giroAmountPtr)
@@ -164,6 +168,7 @@ func RunImportGiroCmd(args []string) {
 			giroNumber, // giro_number
 			outletID,   // outlet_id
 			giroAmount, // giro_amount
+			giroBank,   // giro bank
 			dueDate,    // due_date
 			statusID,   // status_id
 			createdAt,  // createdAt

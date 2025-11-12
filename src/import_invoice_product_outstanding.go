@@ -100,8 +100,8 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 		INSERT INTO rel_sales_invoice_item
 		(sales_invoice_id, product_id, salesman_id, quoted_price, batch_number, discount_value,
 		 discount_routine_value, discount_program_value, discount_routine_branch, discount_program_branch,
-		 dpp, unit, qty, qty_extra, temp_iteration)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 0, 2)
+		 dpp, unit, qty, qty_extra, skb_id, temp_iteration)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 0, ?, 2)
 	`)
 	if err != nil {
 		_ = tx.Rollback()
@@ -113,8 +113,8 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 		INSERT INTO rel_sales_invoice_item
 		(sales_invoice_id, product_id, salesman_id, quoted_price, batch_number, discount_value,
 		 discount_routine_value, discount_program_value, discount_routine_branch, discount_program_branch,
-		 dpp, unit, qty, qty_extra, group_id, temp_iteration)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, ?, 2)
+		 dpp, unit, qty, qty_extra, group_id, skb_id, temp_iteration)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, ?, ?, 2)
 	`)
 	if err != nil {
 		_ = tx.Rollback()
@@ -150,6 +150,7 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 		ID       int64
 		Salesman int64
 		TypeInv  int64
+		InvDate  string
 	}{}
 	skbCache := map[string]int64{}
 	productCache := map[string]int64{}
@@ -198,8 +199,9 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 		invData, ok := invoiceCache[invoiceNumber]
 		if !ok {
 			var siID, salesmanID, typeInv sql.NullInt64
-			err := tx.QueryRow("SELECT sales_invoice_id, salesman_id, sales_invoice_type_id FROM list_sales_invoice WHERE sales_invoice_number = ? LIMIT 1", invoiceNumber).
-				Scan(&siID, &salesmanID, &typeInv)
+			var invDate string
+			err := tx.QueryRow("SELECT sales_invoice_id, salesman_id, sales_invoice_type_id, sales_invoice_date FROM list_sales_invoice WHERE sales_invoice_number = ? LIMIT 1", invoiceNumber).
+				Scan(&siID, &salesmanID, &typeInv, &invDate)
 			if err == sql.ErrNoRows {
 				log.Printf("missing invoice: %s", invoiceNumber)
 				fmt.Println("missing invoice: ", invoiceNumber)
@@ -213,14 +215,16 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 				ID       int64
 				Salesman int64
 				TypeInv  int64
-			}{ID: siID.Int64, Salesman: salesmanID.Int64, TypeInv: typeInv.Int64}
+				InvDate  string
+			}{ID: siID.Int64, Salesman: salesmanID.Int64, TypeInv: typeInv.Int64, InvDate: invDate}
 			invoiceCache[invoiceNumber] = invData
 		}
 
 		// skb
+		var issuerWarehouseId int64
 		skbID, ok := skbCache[invoiceNumber]
 		if !ok {
-			err := tx.QueryRow("SELECT skb_id FROM list_skb WHERE skb_number = ? LIMIT 1", invoiceNumber).Scan(&skbID)
+			err := tx.QueryRow("SELECT skb_id, issuer_warehouse_id FROM list_skb WHERE skb_number = ? LIMIT 1", invoiceNumber).Scan(&skbID, &issuerWarehouseId)
 			if err == sql.ErrNoRows {
 				log.Printf("missing skb: %s", invoiceNumber)
 				fmt.Println("missing skb: ", invoiceNumber)
@@ -240,6 +244,7 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 			continue
 		}
 
+		var isConsignImport int64
 		productID, ok := productCache[productCode]
 		if !ok {
 			// if productCode == "013632" {
@@ -254,7 +259,7 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 			// if productCode == "013631" {
 			// 	productCode = "015716"
 			// }
-			err := tx.QueryRow("SELECT product_id FROM list_product WHERE product_code = ? LIMIT 1", productCode).Scan(&productID)
+			err := tx.QueryRow("SELECT product_id, is_consign_import  FROM list_product WHERE product_code = ? LIMIT 1", productCode).Scan(&productID, &isConsignImport)
 			if err == sql.ErrNoRows {
 				res, err2 := tx.Exec("INSERT INTO list_product (product_code, product_name, createdAt, createdBy) VALUES (?, ?, NOW(), ?)",
 					productCode, productCode, *adminID)
@@ -265,6 +270,7 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 				}
 				last, _ := res.LastInsertId()
 				productID = last
+				isConsignImport = 0
 			} else if err != nil {
 				_ = tx.Rollback()
 				exitWith("error querying product: " + err.Error())
@@ -376,7 +382,7 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 			if errInv == sql.ErrNoRows {
 				res, err := stmtInvoice.Exec(
 					invData.ID, productID, invData.Salesman, price, nil,
-					discVal, discRVal, discPVal, discR, discP, dpp, int64(qty),
+					discVal, discRVal, discPVal, discR, discP, dpp, int64(qty), skbID,
 				)
 				if err != nil {
 					_ = tx.Rollback()
@@ -390,7 +396,7 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 					exitWith("failed to get last insert id: " + err.Error())
 				}
 				if qtyExtra > 0 {
-					if _, err := stmtInvoiceExtra.Exec(invData.ID, productID, invData.Salesman, price, nil, discVal, discRVal, discPVal, discR, discP, int64(qtyExtra), groupID); err != nil {
+					if _, err := stmtInvoiceExtra.Exec(invData.ID, productID, invData.Salesman, price, nil, discVal, discRVal, discPVal, discR, discP, int64(qtyExtra), groupID, skbID); err != nil {
 						_ = tx.Rollback()
 						exitWith("insert invoice extra failed: " + err.Error())
 					}
@@ -417,7 +423,7 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 						var grpId int64
 						errInv := tx.QueryRow("SELECT rel_id FROM rel_sales_invoice_item WHERE sales_invoice_id = ? AND product_id = ? AND qty_extra = 0", invData.ID, productID).Scan(&grpId)
 						if errInv == nil {
-							if _, err := stmtInvoiceExtra.Exec(invData.ID, productID, invData.Salesman, price, nil, discVal, discRVal, discPVal, discR, discP, int64(qtyExtra), grpId); err != nil {
+							if _, err := stmtInvoiceExtra.Exec(invData.ID, productID, invData.Salesman, price, nil, discVal, discRVal, discPVal, discR, discP, int64(qtyExtra), grpId, skbID); err != nil {
 								_ = tx.Rollback()
 								exitWith("insert invoice extra failed: " + err.Error())
 							}
@@ -430,7 +436,7 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 			if errInv == sql.ErrNoRows {
 				res, err := stmtInvoice.Exec(
 					invData.ID, productID, invData.Salesman, price, batch,
-					discVal, discRVal, discPVal, discR, discP, dpp, int64(qty),
+					discVal, discRVal, discPVal, discR, discP, dpp, int64(qty), skbID,
 				)
 				if err != nil {
 					_ = tx.Rollback()
@@ -444,7 +450,7 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 					exitWith("failed to get last insert id: " + err.Error())
 				}
 				if qtyExtra > 0 {
-					if _, err := stmtInvoiceExtra.Exec(invData.ID, productID, invData.Salesman, price, batch, discVal, discRVal, discPVal, discR, discP, int64(qtyExtra), groupID); err != nil {
+					if _, err := stmtInvoiceExtra.Exec(invData.ID, productID, invData.Salesman, price, batch, discVal, discRVal, discPVal, discR, discP, int64(qtyExtra), groupID, skbID); err != nil {
 						_ = tx.Rollback()
 						exitWith("insert invoice extra failed: " + err.Error())
 					}
@@ -471,7 +477,7 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 						var grpId int64
 						errInv := tx.QueryRow("SELECT rel_id FROM rel_sales_invoice_item WHERE sales_invoice_id = ? AND product_id = ? AND qty_extra = 0", invData.ID, productID).Scan(&grpId)
 						if errInv == nil {
-							if _, err := stmtInvoiceExtra.Exec(invData.ID, productID, invData.Salesman, price, batch, discVal, discRVal, discPVal, discR, discP, int64(qtyExtra), grpId); err != nil {
+							if _, err := stmtInvoiceExtra.Exec(invData.ID, productID, invData.Salesman, price, batch, discVal, discRVal, discPVal, discR, discP, int64(qtyExtra), grpId, skbID); err != nil {
 								_ = tx.Rollback()
 								exitWith("insert invoice extra failed: " + err.Error())
 							}
@@ -502,6 +508,41 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 				_ = tx.Rollback()
 				exitWith("insert skb extra failed: " + err.Error())
 			}
+		}
+
+		var batchId int64
+		err = tx.QueryRow("SELECT batch_id FROM list_product_batch WHERE product_id = ? AND batch_number = ? AND expired_date = ? LIMIT 1",
+			productID, batch, expDate).Scan(&batchId)
+		if err == sql.ErrNoRows {
+			// insert single batch (we need id immediately)
+			res, errIns := tx.Exec("INSERT INTO list_product_batch (product_id, batch_number, expired_date, createdAt, createdBy) VALUES (?, ?, ?, NOW(), ?)",
+				productID, batch, expDate, 1)
+			if errIns != nil {
+				_ = tx.Rollback()
+				exitWith("insert product batch failed: " + err.Error())
+			}
+			batchId, _ = res.LastInsertId()
+		} else if err != nil {
+			_ = tx.Rollback()
+			exitWith("insert product batch failed: " + err.Error())
+		}
+
+		if isConsignImport == 1 {
+			txQty := int64(qty) + int64(qtyExtra)
+			txSql := "INSERT INTO list_tx (tx_date, tx_type_id, product_id, warehouse_id, is_consigment, unit, debit, credit, batch_id, skb_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+			_, err := tx.Exec(txSql, invData.InvDate, 1, productID, issuerWarehouseId, 1, 1, txQty, 0, batchId, skbID)
+			if err != nil {
+				_ = tx.Rollback()
+				exitWith("insert tx failed: " + err.Error())
+			}
+
+			txSqlCred := "INSERT INTO list_tx (tx_date, tx_type_id, product_id, warehouse_id, is_consigment, unit, debit, credit, batch_id, skb_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+			_, errCred := tx.Exec(txSqlCred, invData.InvDate, 2, productID, issuerWarehouseId, 1, 1, 0, txQty, batchId, skbID)
+			if errCred != nil {
+				_ = tx.Rollback()
+				exitWith("insert tx failed: " + err.Error())
+			}
+
 		}
 
 		linkKey := fmt.Sprintf("%d_%d", invData.ID, skbID)
