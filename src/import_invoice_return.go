@@ -85,7 +85,7 @@ func RunImportSalesInvoiceReturnCmd(args []string) {
 		"stb_number", "stb_date", "stb_status_id", "stb_type_id", "reference_number",
 		"destination_warehouse_id", "issuer_type_id", "issuer_id", "issuer",
 		"destination_type_id", "destination_id", "destination",
-		"is_return_invoice_sales", "createdAt", "createdBy",
+		"is_return_invoice_sales", "createdAt", "createdBy", "division_id",
 	}
 
 	batchReturnRows := [][]interface{}{}
@@ -219,7 +219,7 @@ func RunImportSalesInvoiceReturnCmd(args []string) {
 		stbVals := []interface{}{
 			invoiceNumber, invoiceDate, 2, stbTypeID, invoiceNumber,
 			warehouseID, 3, outletID, outletName, 1, branchID, branchName,
-			1, now, *adminID,
+			1, now, *adminID, divisionID,
 		}
 		batchStbRows = append(batchStbRows, stbVals)
 

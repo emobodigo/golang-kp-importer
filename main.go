@@ -20,6 +20,8 @@ func main() {
 		src.RunImportOutletCmd(os.Args[2:])
 	case "product":
 		src.RunImportProductCmd(os.Args[2:])
+	case "product-revisi":
+		src.RunImportProductRevisiCmd(os.Args[2:])
 	case "stock":
 		src.RunImportInitialStockCmd(os.Args[2:])
 	case "invoice":

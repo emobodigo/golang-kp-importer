@@ -144,6 +144,8 @@ func RunImportTransferOutstandingCmd(args []string) {
 		if transferDate == "" {
 			transferDate = time.Now().Format("2006-01-02")
 		}
+		snapshotAmount := denormFloat(snapshotAmountPtr)
+		snapshotSettlement := denormFloat(snapshotSettlementPtr)
 
 		// Get or cache branch origin
 		var branchOriginID int64
@@ -233,9 +235,9 @@ func RunImportTransferOutstandingCmd(args []string) {
 
 			// INSERT rel_deposit_transfer_transaction
 			_, err = tx.Exec(`
-				INSERT INTO rel_deposit_transfer_transaction (deposit_transfer_id, deposit_id)
-				VALUES (?, ?)
-			`, transferID, depositID)
+				INSERT INTO rel_deposit_transfer_transaction (deposit_transfer_id, deposit_id, snapshot_value, snapshot_transfer)
+				VALUES (?, ?, ?, ?)
+			`, transferID, depositID, snapshotAmount, snapshotSettlement)
 
 			if err != nil {
 				_ = tx.Rollback()
@@ -270,9 +272,6 @@ func RunImportTransferOutstandingCmd(args []string) {
 				invoice = &invData
 				invoiceCache[invoiceNumber] = invoice
 			}
-
-			snapshotAmount := denormFloat(snapshotAmountPtr)
-			snapshotSettlement := denormFloat(snapshotSettlementPtr)
 
 			// INSERT list_outstanding_transfer
 			res, err := tx.Exec(`

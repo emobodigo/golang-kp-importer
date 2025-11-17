@@ -238,7 +238,7 @@ func RunImportInitialStockCmd(args []string) {
 		}
 
 		// createdAt := time.Now().Format("2006-01-02 15:04:05")
-		txDate := "2025-09-29 00:00:00"
+		txDate := "2025-11-14 00:00:00"
 
 		// Prepare tx row values in same order as txCols
 		rowVals := []interface{}{

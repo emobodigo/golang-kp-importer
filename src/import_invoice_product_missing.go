@@ -153,7 +153,7 @@ func RunImportSalesInvoiceProductMissingCmd(args []string) {
 		InvDate  string
 	}{}
 	skbCache := map[string]int64{}
-	productCache := map[string]int64{}
+	productCache := make(map[string]ProductCacheData)
 	invoiceSKBLinked := map[string]bool{}
 
 	insertedCount := 0
@@ -211,12 +211,20 @@ func RunImportSalesInvoiceProductMissingCmd(args []string) {
 				_ = tx.Rollback()
 				exitWith("error querying invoice: " + err.Error())
 			}
+			invDateP, errP := time.Parse(time.RFC3339, invDate)
+			if errP != nil {
+				_ = tx.Rollback()
+				exitWith("parsing error: " + errP.Error())
+			}
+
+			// Format ulang agar MySQL menerima
+			formattedDate := invDateP.Format("2006-01-02 15:04:05")
 			invData = struct {
 				ID       int64
 				Salesman int64
 				TypeInv  int64
 				InvDate  string
-			}{ID: siID.Int64, Salesman: salesmanID.Int64, TypeInv: typeInv.Int64, InvDate: invDate}
+			}{ID: siID.Int64, Salesman: salesmanID.Int64, TypeInv: typeInv.Int64, InvDate: formattedDate}
 			invoiceCache[invoiceNumber] = invData
 		}
 
@@ -245,24 +253,46 @@ func RunImportSalesInvoiceProductMissingCmd(args []string) {
 		}
 
 		var isConsignImport int64
-		productID, ok := productCache[productCode]
-		if !ok {
-			err := tx.QueryRow("SELECT product_id, is_consign_import FROM list_product WHERE product_code = ? LIMIT 1", productCode).Scan(&productID, &isConsignImport)
+		var productID int64
+
+		cached, ok := productCache[productCode]
+		if ok {
+			// ambil data dari cache
+			productID = cached.ID
+			isConsignImport = cached.IsConsignImport
+
+		} else {
+			// belum ada di cache → query ke DB
+			err := tx.QueryRow(
+				"SELECT product_id, is_consign_import FROM list_product WHERE product_code = ? LIMIT 1",
+				productCode,
+			).Scan(&productID, &isConsignImport)
+
 			if err == sql.ErrNoRows {
-				res, err2 := tx.Exec("INSERT INTO list_product (product_code, product_name, createdAt, createdBy) VALUES (?, ?, NOW(), ?)",
-					productCode, productCode, *adminID)
+				// Insert baru
+				res, err2 := tx.Exec(
+					"INSERT INTO list_product (product_code, product_name, createdAt, createdBy) VALUES (?, ?, NOW(), ?)",
+					productCode, productCode, *adminID,
+				)
 				if err2 != nil {
 					_ = tx.Rollback()
 					exitWith("error inserting product: " + err2.Error())
 				}
+
 				last, _ := res.LastInsertId()
 				productID = last
 				isConsignImport = 0
+
 			} else if err != nil {
 				_ = tx.Rollback()
 				exitWith("error querying product: " + err.Error())
 			}
-			productCache[productCode] = productID
+
+			// simpan ke cache
+			productCache[productCode] = ProductCacheData{
+				ID:              productID,
+				IsConsignImport: isConsignImport,
+			}
 		}
 
 		parseFloat := func(s string) float64 {
@@ -334,7 +364,7 @@ func RunImportSalesInvoiceProductMissingCmd(args []string) {
 					_, errIns := tx.Exec("UPDATE rel_sales_order_item SET qty_extra = ? WHERE rel_id = ?", newQty, rel_id)
 					if errIns != nil {
 						_ = tx.Rollback()
-						exitWith("update order item failed: " + err.Error())
+						exitWith("update order item failed: " + errIns.Error())
 					}
 				} else {
 					var grpId int64
@@ -513,18 +543,18 @@ func RunImportSalesInvoiceProductMissingCmd(args []string) {
 
 		if isConsignImport == 1 {
 			txQty := int64(qty) + int64(qtyExtra)
-			txSql := "INSERT INTO list_tx (tx_date, tx_type_id, product_id, warehouse_id, is_consigment, unit, debit, credit, batch_id, skb_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+			txSql := "INSERT INTO list_tx (tx_date, tx_type_id, product_id, warehouse_id, is_consignment, unit, debit, credit, batch_id, skb_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 			_, err := tx.Exec(txSql, invData.InvDate, 1, productID, issuerWarehouseId, 1, 1, txQty, 0, batchId, skbID)
 			if err != nil {
 				_ = tx.Rollback()
 				exitWith("insert tx failed: " + err.Error())
 			}
 
-			txSqlCred := "INSERT INTO list_tx (tx_date, tx_type_id, product_id, warehouse_id, is_consigment, unit, debit, credit, batch_id, skb_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+			txSqlCred := "INSERT INTO list_tx (tx_date, tx_type_id, product_id, warehouse_id, is_consignment, unit, debit, credit, batch_id, skb_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 			_, errCred := tx.Exec(txSqlCred, invData.InvDate, 2, productID, issuerWarehouseId, 1, 1, 0, txQty, batchId, skbID)
 			if errCred != nil {
 				_ = tx.Rollback()
-				exitWith("insert tx failed: " + err.Error())
+				exitWith("insert tx failed: " + errCred.Error())
 			}
 
 		}
