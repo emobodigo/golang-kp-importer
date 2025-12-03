@@ -286,8 +286,8 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 			if err == sql.ErrNoRows {
 				// Insert baru
 				res, err2 := tx.Exec(
-					"INSERT INTO list_product (product_code, product_name, createdAt, createdBy) VALUES (?, ?, NOW(), ?)",
-					productCode, productCode, *adminID,
+					"INSERT INTO list_product (product_code, product_name, product_status_id, classification_id, division_id, length_unit, width_unit, height_unit, weight_unit, volume_unit, biggest_conv, smallest_conv, lock_discount, lock_sale, is_need_expired, required_serial_number, product_het, default_hna, product_class, createdAt, createdBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)",
+					productCode, productCode, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, "Reguler", *adminID,
 				)
 				if err2 != nil {
 					_ = tx.Rollback()
@@ -520,17 +520,17 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 		}
 
 		// skb
-		var countSkb int
-		errSkb := tx.QueryRow("SELECT COUNT(1) FROM rel_skb_item WHERE skb_id = ?", skbID).Scan(&countSkb)
-		if errSkb != nil {
-			_ = tx.Rollback()
-			exitWith("cek existing invoice item failed: " + err.Error())
-		}
+		// var countSkb int
+		// errSkb := tx.QueryRow("SELECT COUNT(1) FROM rel_skb_item WHERE skb_id = ? AND product_id = ? AND expired_date = ?", skbID, productID).Scan(&countSkb)
+		// if errSkb != nil {
+		// 	_ = tx.Rollback()
+		// 	exitWith("cek existing invoice item failed: " + err.Error())
+		// }
 
-		if countSkb > 0 {
-			// Sudah ada, skip insert
-			continue
-		}
+		// if countSkb > 0 {
+		// 	// Sudah ada, skip insert
+		// 	continue
+		// }
 		if _, err := stmtSkb.Exec(skbID, productID, int64(qty), price, batch, expDate, 5, orderID); err != nil {
 			_ = tx.Rollback()
 			exitWith("insert skb item failed: " + err.Error())

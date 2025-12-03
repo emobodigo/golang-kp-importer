@@ -53,7 +53,7 @@ intransit-product:
 	./dist/import_tool intransit-product --file ./uploads/intransit-product.xlsx --dsn "root:@tcp(127.0.0.1:3306)/web_kebayoran_new?parseTime=true&multiStatements=true"  --batch 500
 
 invoice-missing:
-	./dist/import_tool invoice --file ./uploads/invoice-missing.xlsx --dsn "root:@tcp(127.0.0.1:3306)/web_kebayoran_new?parseTime=true&multiStatements=true" --admin-id 1 --batch 500
+	./dist/import_tool invoice-missing --file ./uploads/invoice-missing.xlsx --dsn "root:@tcp(127.0.0.1:3306)/web_kebayoran_new?parseTime=true&multiStatements=true" --admin-id 1 --batch 500
 
 invoice-product-missing:
 	./dist/import_tool invoice-product-missing --file ./uploads/invoice-product-missing.xlsx --dsn "root:@tcp(127.0.0.1:3306)/web_kebayoran_new?parseTime=true&multiStatements=true" --admin-id 1 --batch 500

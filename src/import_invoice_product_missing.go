@@ -503,17 +503,17 @@ func RunImportSalesInvoiceProductMissingCmd(args []string) {
 		}
 
 		// skb
-		var countSkb int
-		errSkb := tx.QueryRow("SELECT COUNT(1) FROM rel_skb_item WHERE skb_id = ?", skbID).Scan(&countSkb)
-		if errSkb != nil {
-			_ = tx.Rollback()
-			exitWith("cek existing invoice item failed: " + err.Error())
-		}
+		// var countSkb int
+		// errSkb := tx.QueryRow("SELECT COUNT(1) FROM rel_skb_item WHERE skb_id = ?", skbID).Scan(&countSkb)
+		// if errSkb != nil {
+		// 	_ = tx.Rollback()
+		// 	exitWith("cek existing invoice item failed: " + err.Error())
+		// }
 
-		if countSkb > 0 {
-			// Sudah ada, skip insert
-			continue
-		}
+		// if countSkb > 0 {
+		// 	// Sudah ada, skip insert
+		// 	continue
+		// }
 		if _, err := stmtSkb.Exec(skbID, productID, int64(qty), price, batch, expDate, 5, orderID); err != nil {
 			_ = tx.Rollback()
 			exitWith("insert skb item failed: " + err.Error())

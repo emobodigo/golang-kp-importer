@@ -98,6 +98,7 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 	adminCache := map[string]*Admin{}
 	sourceCache := map[string]*SalesSource{}
 	invoiceExistsCache := map[string]bool{}
+	branchBillingCache := map[string]*Branch{}
 
 	// batch builders: we will batch-insert into 3 tables
 	orderCols := []string{
@@ -186,10 +187,42 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 			continue
 		}
 
+		branchBillingCodePtr := getCol(16)
+		if branchBillingCodePtr == nil || *branchBillingCodePtr == "" {
+			log.Printf("Missing branch code at row %d\n", rowIndex)
+			fmt.Printf("Missing branch code at row %d\n", rowIndex)
+			continue
+		}
+		branchBillingCode := *branchBillingCodePtr
+
+		var branchBilling *Branch
+		if b, ok := branchBillingCache[branchBillingCode]; ok {
+			branchBilling = b
+		} else {
+			var bid int64
+			var bname sql.NullString
+			err := tx.QueryRow("SELECT branch_id, branch_name FROM list_branch WHERE branch_code = ? LIMIT 1", branchBillingCode).Scan(&bid, &bname)
+			if err == sql.ErrNoRows {
+				log.Printf("Missing branch: %s (row %d)\n", branchBillingCode, rowIndex)
+				fmt.Println("Missing branch: ", branchBillingCode)
+				continue
+			} else if err != nil {
+				_ = tx.Rollback()
+				resp.Message = "db error querying branch: " + err.Error()
+				goto FINISH
+			}
+			nb := &Branch{ID: bid}
+			if bname.Valid {
+				nb.Name = bname.String
+			}
+			branchBillingCache[branchBillingCode] = nb
+			branchBilling = nb
+		}
+
 		var existingID int64
 		errInv := tx.QueryRow("SELECT sales_invoice_id FROM list_sales_invoice WHERE sales_invoice_number = ? LIMIT 1", invoiceNumber).Scan(&existingID)
 		if errInv == nil {
-			_, err = tx.Exec("UPDATE list_sales_order SET sales_order_status_id = ? WHERE sales_number = ?", 7, invoiceNumber)
+			_, err = tx.Exec("UPDATE list_sales_order SET sales_order_status_id = ?, branch_billing_id = ? WHERE sales_number = ?", 7, branchBilling.ID, invoiceNumber)
 			if err != nil {
 				_ = tx.Rollback()
 				resp.Message = "db error update list sales order: " + err.Error()
@@ -197,7 +230,7 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 			}
 
 			// Update list_sales_invoice
-			_, err = tx.Exec("UPDATE list_sales_invoice SET sales_invoice_status_id = ? WHERE sales_invoice_number = ?", 2, invoiceNumber)
+			_, err = tx.Exec("UPDATE list_sales_invoice SET sales_invoice_status_id = ?, branch_billing_id = ? WHERE sales_invoice_number = ?", 2, branchBilling.ID, invoiceNumber)
 			if err != nil {
 				_ = tx.Rollback()
 				resp.Message = "db error update list sales_invoice: " + err.Error()
@@ -436,7 +469,7 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 					// insert new admin with password "admin" hashed? we will insert with static hash placeholder
 					// to avoid adding bcrypt dependency here, insert with a placeholder password (you can change)
 					hashedPass := "$2y$10$BpYtQGwQSSTM79aUVJdW7.gwdOCJ.cY29g.sc1KS3qusyU8U4eHFu" // replace if you want bcrypt
-					createdAt := "2025-09-29 00:00:00"
+					createdAt := time.Now().Format("2006-01-02 15:04:05")
 					res, errIns := tx.Exec("INSERT INTO gemstone_admin (admin_name, admin_fullname, admin_tier_id, password, admin_status, last_active) VALUES (?, ?, 30, ?, 1, ?)",
 						adminName, adminName, hashedPass, createdAt)
 					if errIns != nil {
@@ -565,29 +598,29 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 
 			// build order row
 			orderRow := []interface{}{
-				outlet.ID,     // outlet_id
-				divisionID,    // division_id
-				branch.ID,     // branch_id
-				branch.ID,     // branch_billing_id
-				invoiceDate,   // sales_date
-				invoiceNumber, // sales_number
-				3,             // SalesOrderStatus::SELESAI (?) PHP used constant: use 3 or  something; adjust if needed
-				paymentMethod, // payment_method
-				sourceID,      // sales_source_id
-				salesTypeID,   // sales_type_id
-				salesmanID,    // salesman_id
-				regionID,      // region_id
-				nil,           // principal_id -> will pass nil or principalID.Int64
-				stampDuty,     // stamp_duty
-				0,             // is_ecatalogue
-				termDays,      // term_days
-				amount,        // amount
-				ppn,           // ppn
-				discount,      // cash_discount
-				createdAt,     // createdAt
-				*adminID,      // createdBy
-				1,             // is_legacy
-				dueDate,       // Due date
+				outlet.ID,        // outlet_id
+				divisionID,       // division_id
+				branch.ID,        // branch_id
+				branchBilling.ID, // branch_billing_id
+				invoiceDate,      // sales_date
+				invoiceNumber,    // sales_number
+				3,                // SalesOrderStatus::SELESAI (?) PHP used constant: use 3 or  something; adjust if needed
+				paymentMethod,    // payment_method
+				sourceID,         // sales_source_id
+				salesTypeID,      // sales_type_id
+				salesmanID,       // salesman_id
+				regionID,         // region_id
+				nil,              // principal_id -> will pass nil or principalID.Int64
+				stampDuty,        // stamp_duty
+				0,                // is_ecatalogue
+				termDays,         // term_days
+				amount,           // amount
+				ppn,              // ppn
+				discount,         // cash_discount
+				createdAt,        // createdAt
+				*adminID,         // createdBy
+				1,                // is_legacy
+				dueDate,          // Due date
 			}
 			// principal
 			if principalID.Valid {
@@ -602,7 +635,7 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 				outlet.ID,
 				divisionID,
 				branch.ID,
-				branch.ID,
+				branchBilling.ID,
 				invoiceDate,
 				invoiceNumber,
 				note,

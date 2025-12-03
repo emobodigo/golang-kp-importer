@@ -50,6 +50,8 @@ func main() {
 		src.RunImportSKBCentralIntransitCmd(os.Args[2:])
 	case "intransit-product":
 		src.RunImportSKBCentralIntransitProductCmd(os.Args[2:])
+	case "invoice-missing":
+		src.RunImportSalesInvoiceMissingCmd(os.Args[2:])
 	case "invoice-product-missing":
 		src.RunImportSalesInvoiceProductMissingCmd(os.Args[2:])
 	case "transfer":
