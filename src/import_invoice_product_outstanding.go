@@ -255,6 +255,14 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 		var isConsignImport int64
 		var productID int64
 
+		parseFloat := func(s string) float64 {
+			if s == "" {
+				return 0
+			}
+			f, _ := strconv.ParseFloat(strings.ReplaceAll(s, ",", ""), 64)
+			return f
+		}
+
 		cached, ok := productCache[productCode]
 		if ok {
 			// ambil data dari cache
@@ -287,7 +295,7 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 				// Insert baru
 				res, err2 := tx.Exec(
 					"INSERT INTO list_product (product_code, product_name, product_status_id, classification_id, division_id, length_unit, width_unit, height_unit, weight_unit, volume_unit, biggest_conv, smallest_conv, lock_discount, lock_sale, is_need_expired, required_serial_number, product_het, default_hna, product_class, createdAt, createdBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)",
-					productCode, productCode, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, "Reguler", *adminID,
+					productCode, productCode, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, parseFloat(getCol(5)), "Reguler", *adminID,
 				)
 				if err2 != nil {
 					_ = tx.Rollback()
@@ -308,14 +316,6 @@ func RunImportSalesInvoiceProductOutstandingCmd(args []string) {
 				ID:              productID,
 				IsConsignImport: isConsignImport,
 			}
-		}
-
-		parseFloat := func(s string) float64 {
-			if s == "" {
-				return 0
-			}
-			f, _ := strconv.ParseFloat(strings.ReplaceAll(s, ",", ""), 64)
-			return f
 		}
 
 		qty := parseFloat(getCol(3))

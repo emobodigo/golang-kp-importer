@@ -171,7 +171,7 @@ func importDaftarProduk(f *excelize.File, tx *sql.Tx, batchSize int, adminID int
 		"weight", "weight_unit", "volume", "volume_unit", "biggest_conv",
 		"biggest_unit", "smallest_conv", "smallest_unit", "sale_unit", "manufacturer",
 		"default_margin_principal", "lock_discount", "lock_sale", "stock_level_product", "form_id",
-		"remark", "is_need_expired", "required_serial_number", "product_het", "default_hna", "is_multiplicative_discount_central", "allow_discount_central", "is_consign_import",
+		"remark", "is_need_expired", "required_serial_number", "product_het", "default_hna", "is_multiplicative_discount_central", "allow_discount_central", "is_consign_import", "tax_unit", "tax_code",
 		"createdAt", "createdBy",
 	}
 
@@ -490,6 +490,14 @@ func importDaftarProduk(f *excelize.File, tx *sql.Tx, batchSize int, adminID int
 		if p := getCol(46); p != nil && strings.EqualFold(*p, "TIDAK") {
 			isConsignImport = 0
 		}
+		taxUnit := ""
+		if p := getCol(47); p != nil && *p != "" {
+			taxUnit = *p
+		}
+		taxCode := ""
+		if p := getCol(48); p != nil && *p != "" {
+			taxCode = *p
+		}
 
 		// duplicate code check
 		if productCodeStr != "" {
@@ -609,6 +617,8 @@ func importDaftarProduk(f *excelize.File, tx *sql.Tx, batchSize int, adminID int
 			discountLeveling,
 			availableDiscountCentral,
 			isConsignImport,
+			taxUnit,
+			taxCode,
 			createdAt,
 			adminID,
 		)
@@ -907,7 +917,7 @@ func importGrupProduk(f *excelize.File, tx *sql.Tx, batchSize int, adminID int, 
 			newID, _ := result.LastInsertId()
 			tagID = newID
 		}
-		assignedDate := time.Now().Format("2006-01-02 15:04:05")
+		assignedDate := "2022-01-01 00:00:00"
 		batchRows = append(batchRows, []interface{}{productID, tagID, assignedDate, adminID})
 		succeed++
 		if len(batchRows) >= batchSize {

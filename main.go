@@ -60,6 +60,8 @@ func main() {
 		src.RunImportBeginningBalanceCmd(os.Args[2:])
 	case "dmf":
 		src.RunImportDMFCmd(os.Args[2:])
+	case "supplier":
+		src.RunImportSupplierCmd(os.Args[2:])
 	default:
 		fmt.Printf("Unknown command: %s\n", cmd)
 		fmt.Println("Usage: import_tool [outlet|product|stock] [options]")

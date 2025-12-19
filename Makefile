@@ -4,6 +4,9 @@ build:
 outlet:
 	./dist/import_tool outlet --file ./uploads/outlet.xlsx --dsn "root:@tcp(127.0.0.1:3306)/web_kebayoran_new?parseTime=true&multiStatements=true" --admin-id 1 --batch 500
 
+supplier:
+	./dist/import_tool supplier --file ./uploads/supplier.xlsx --dsn "root:@tcp(127.0.0.1:3306)/web_kebayoran_new?parseTime=true&multiStatements=true" --admin-id 1 --batch 500
+
 product:
 	./dist/import_tool product --file ./uploads/product.xlsx --dsn "root:@tcp(127.0.0.1:3306)/web_kebayoran_new?parseTime=true&multiStatements=true" --admin-id 1 --batch 500
 

@@ -250,8 +250,8 @@ func RunImportSalesInvoiceReturnProductCmd(args []string) {
 		discountProgramValue := discountProgram / 100 * price
 		discountValue := discountRoutineValue + discountProgramValue
 
-		// Main product entry
-		if qty > 0 {
+		// Main product entry (insert even when only qty_extra is present)
+		if qty > 0 || qtyExtra > 0 {
 			hnaMain := price * float64(qty)
 			discountExtra := price * float64(qtyExtra)
 			totalPriceMain := hnaMain - discountExtra - discountValue

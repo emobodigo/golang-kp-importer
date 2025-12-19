@@ -896,7 +896,7 @@ func importGrupProdukRevisi(f *excelize.File, tx *sql.Tx, batchSize int, adminID
 			newID, _ := result.LastInsertId()
 			tagID = newID
 		}
-		assignedDate := time.Now().Format("2006-01-02 15:04:05")
+		assignedDate := "2022-01-01 00:00:00"
 		batchRows = append(batchRows, []interface{}{productID, tagID, assignedDate, adminID})
 		succeed++
 		if len(batchRows) >= batchSize {

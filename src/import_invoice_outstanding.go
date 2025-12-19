@@ -97,6 +97,7 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 	principalCache := map[string]*Principal{}
 	adminCache := map[string]*Admin{}
 	sourceCache := map[string]*SalesSource{}
+	returnInvoiceCache := map[string]*ReturnInvoice{}
 	invoiceExistsCache := map[string]bool{}
 	branchBillingCache := map[string]*Branch{}
 
@@ -132,6 +133,12 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 	batchSkbRows := [][]interface{}{}
 
 	uniqueInvoiceList := map[string]bool{}
+	returnInvoiceStb := []struct {
+		InvoiceNumber   string
+		ReturnInvoiceID int64
+		SalesmanID      int64
+		RegionID        int64
+	}{}
 
 	// iterate rows
 	rowIndex := 0
@@ -187,7 +194,7 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 			continue
 		}
 
-		branchBillingCodePtr := getCol(16)
+		branchBillingCodePtr := getCol(17)
 		if branchBillingCodePtr == nil || *branchBillingCodePtr == "" {
 			log.Printf("Missing branch code at row %d\n", rowIndex)
 			fmt.Printf("Missing branch code at row %d\n", rowIndex)
@@ -464,7 +471,7 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 				salesmanID = a.ID
 			} else {
 				var aid int64
-				err := tx.QueryRow("SELECT admin_id FROM gemstone_admin WHERE admin_name = ? LIMIT 1", adminName).Scan(&aid)
+				err := tx.QueryRow("SELECT admin_id FROM gemstone_admin WHERE admin_name = ? OR admin_fullname = ? LIMIT 1", adminName, adminName).Scan(&aid)
 				if err == sql.ErrNoRows {
 					// insert new admin with password "admin" hashed? we will insert with static hash placeholder
 					// to avoid adding bcrypt dependency here, insert with a placeholder password (you can change)
@@ -536,6 +543,39 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 		} else {
 			salesTypeID = 3
 			skbTypeID = 11 // SKBType::TENDER_OUTLET
+		}
+
+		// return invoice number (col 16)
+		returnInvoicePtr := getCol(16)
+		if returnInvoicePtr != nil && *returnInvoicePtr != "" {
+			rn := *returnInvoicePtr
+			if _, ok := returnInvoiceCache[rn]; !ok {
+				var rid int64
+				err := tx.QueryRow("SELECT return_invoice_id FROM list_invoice_return WHERE return_number = ? LIMIT 1", rn).Scan(&rid)
+				if err == sql.ErrNoRows {
+					// not found -> skip caching
+					returnInvoiceCache[rn] = nil
+				} else if err != nil {
+					_ = tx.Rollback()
+					resp.Message = "db error querying return invoice: " + err.Error()
+					goto FINISH
+				} else {
+					returnInvoiceCache[rn] = &ReturnInvoice{ID: rid}
+				}
+			}
+			if ri := returnInvoiceCache[rn]; ri != nil {
+				returnInvoiceStb = append(returnInvoiceStb, struct {
+					InvoiceNumber   string
+					ReturnInvoiceID int64
+					SalesmanID      int64
+					RegionID        int64
+				}{
+					InvoiceNumber:   invoiceNumber,
+					ReturnInvoiceID: ri.ID,
+					SalesmanID:      salesmanID,
+					RegionID:        regionID,
+				})
+			}
 		}
 
 		invoiceDateStr := invoiceDate // misal hasil dari parseExcelDate
@@ -756,6 +796,42 @@ func RunImportSalesInvoiceOutstandingCmd(args []string) {
 			_ = tx.Rollback()
 			resp.Message = "error inserting final skbs: " + err.Error()
 			goto FINISH
+		}
+	}
+
+	// handle return_invoice_stb updates
+	if len(returnInvoiceStb) > 0 {
+		invoiceCache := map[string]int64{}
+		for _, item := range returnInvoiceStb {
+			// lookup invoice just inserted by sales_invoice_number
+			if _, ok := invoiceCache[item.InvoiceNumber]; !ok {
+				var sid int64
+				err := tx.QueryRow("SELECT sales_invoice_id FROM list_sales_invoice WHERE sales_invoice_number = ? LIMIT 1", item.InvoiceNumber).Scan(&sid)
+				if err == nil {
+					invoiceCache[item.InvoiceNumber] = sid
+				} else {
+					// not found - skip
+					invoiceCache[item.InvoiceNumber] = 0
+				}
+			}
+			if invoiceCache[item.InvoiceNumber] == 0 {
+				fmt.Println("Invoice cache: ", item.InvoiceNumber)
+				continue
+			}
+			// update rel_return_invoice_stb
+			if _, err := tx.Exec("UPDATE rel_return_invoice_stb SET reference_id = ? WHERE return_invoice_id = ? AND reference_id IS NULL",
+				invoiceCache[item.InvoiceNumber], item.ReturnInvoiceID); err != nil {
+				log.Printf("warning: failed update rel_return_invoice_stb for return_invoice_id=%d: %v\n", item.ReturnInvoiceID, err)
+			}
+			// update snapshots on list_invoice_return
+			if _, err := tx.Exec("UPDATE list_invoice_return SET snapshot_salesman = ?, snapshot_region = ? WHERE return_invoice_id = ?",
+				item.SalesmanID, item.RegionID, item.ReturnInvoiceID); err != nil {
+				log.Printf("warning: failed update snapshot on list_invoice_return for return_invoice_id=%d: %v\n", item.ReturnInvoiceID, err)
+			}
+			// update list_sales_invoice -> mark as return invoice
+			if _, err := tx.Exec("UPDATE list_sales_invoice SET is_return_invoice = 1 WHERE sales_invoice_id = ?", invoiceCache[item.InvoiceNumber]); err != nil {
+				log.Printf("warning: failed update list_sales_invoice is_return_invoice for id=%d: %v\n", invoiceCache[item.InvoiceNumber], err)
+			}
 		}
 	}
 

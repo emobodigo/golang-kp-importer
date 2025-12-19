@@ -136,6 +136,8 @@ func RunImportSalesInvoiceMissingCmd(args []string) {
 	returnInvoiceStb := []struct {
 		InvoiceNumber   string
 		ReturnInvoiceID int64
+		SalesmanID      int64
+		RegionID        int64
 	}{}
 
 	// iterate rows
@@ -462,7 +464,7 @@ func RunImportSalesInvoiceMissingCmd(args []string) {
 				salesmanID = a.ID
 			} else {
 				var aid int64
-				err := tx.QueryRow("SELECT admin_id FROM gemstone_admin WHERE admin_name = ? LIMIT 1", adminName).Scan(&aid)
+				err := tx.QueryRow("SELECT admin_id FROM gemstone_admin WHERE admin_name = ? OR admin_fullname = ? LIMIT 1", adminName, adminName).Scan(&aid)
 				if err == sql.ErrNoRows {
 					// insert new admin with password "admin" hashed? we will insert with static hash placeholder
 					// to avoid adding bcrypt dependency here, insert with a placeholder password (you can change)
@@ -558,7 +560,14 @@ func RunImportSalesInvoiceMissingCmd(args []string) {
 				returnInvoiceStb = append(returnInvoiceStb, struct {
 					InvoiceNumber   string
 					ReturnInvoiceID int64
-				}{InvoiceNumber: invoiceNumber, ReturnInvoiceID: ri.ID})
+					SalesmanID      int64
+					RegionID        int64
+				}{
+					InvoiceNumber:   invoiceNumber,
+					ReturnInvoiceID: ri.ID,
+					SalesmanID:      salesmanID,
+					RegionID:        regionID,
+				})
 			}
 		}
 
@@ -816,6 +825,11 @@ func RunImportSalesInvoiceMissingCmd(args []string) {
 			if _, err := tx.Exec("UPDATE rel_return_invoice_stb SET reference_id = ? WHERE return_invoice_id = ? AND reference_id IS NULL",
 				invoiceCache[item.InvoiceNumber], item.ReturnInvoiceID); err != nil {
 				log.Printf("warning: failed update rel_return_invoice_stb for return_invoice_id=%d: %v\n", item.ReturnInvoiceID, err)
+			}
+			// update snapshots on list_invoice_return
+			if _, err := tx.Exec("UPDATE list_invoice_return SET snapshot_salesman = ?, snapshot_region = ? WHERE return_invoice_id = ?",
+				item.SalesmanID, item.RegionID, item.ReturnInvoiceID); err != nil {
+				log.Printf("warning: failed update snapshot on list_invoice_return for return_invoice_id=%d: %v\n", item.ReturnInvoiceID, err)
 			}
 			// update list_sales_invoice -> mark as return invoice
 			if _, err := tx.Exec("UPDATE list_sales_invoice SET is_return_invoice = 1 WHERE sales_invoice_id = ?", invoiceCache[item.InvoiceNumber]); err != nil {

@@ -173,7 +173,7 @@ func RunImportDMFCmd(args []string) {
 		if loperNamePtr != nil && *loperNamePtr != "" {
 			loperName := *loperNamePtr
 			var lid int64
-			err = tx.QueryRow("SELECT admin_id FROM gemstone_admin WHERE admin_name = ? LIMIT 1", loperName).Scan(&lid)
+			err = tx.QueryRow("SELECT admin_id FROM gemstone_admin WHERE admin_name = ? OR admin_fullname = ? LIMIT 1", loperName, loperName).Scan(&lid)
 			if err == sql.ErrNoRows {
 				// Insert new loper
 				res, errIns := tx.Exec(`INSERT INTO gemstone_admin 
@@ -302,7 +302,7 @@ func RunImportDMFCmd(args []string) {
 		if dmfAdminNamePtr != nil && *dmfAdminNamePtr != "" {
 			dmfAdminName := *dmfAdminNamePtr
 			var aid int64
-			err = tx.QueryRow("SELECT admin_id FROM gemstone_admin WHERE admin_name = ? LIMIT 1", dmfAdminName).Scan(&aid)
+			err = tx.QueryRow("SELECT admin_id FROM gemstone_admin WHERE admin_name = ? OR admin_fullname = ? LIMIT 1", dmfAdminName, dmfAdminName).Scan(&aid)
 			if err == sql.ErrNoRows {
 				// Insert new admin
 				res, errIns := tx.Exec(`INSERT INTO gemstone_admin 
