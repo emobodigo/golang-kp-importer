@@ -106,7 +106,7 @@ func RunImportOutletCmd(args []string) {
 		"minimum_invoice_value", "sipnap_code", "branch_id", "segment_internal_id",
 		"npwp", "is_pkp", "pkp", "is_pbf", "pbf_code", "outlet_type_id",
 		"show_npwp_print", "tax_document_type", "nik", "nitku", "outlet_note",
-		"createdAt", "createdBy",
+		"createdAt", "createdBy", "old_code",
 	}
 	batchHistoryRows := [][]interface{}{}
 	batchHistoryCols := []string{
@@ -115,7 +115,7 @@ func RunImportOutletCmd(args []string) {
 		"minimum_invoice_value", "sipnap_code", "branch_id", "segment_internal_id",
 		"npwp", "is_pkp", "pkp", "is_pbf", "pbf_code", "outlet_type_id",
 		"show_npwp_print", "tax_document_type", "nik", "nitku", "outlet_note",
-		"createdAt", "createdBy", "history_status_id",
+		"createdAt", "createdBy", "old_code", "history_status_id",
 	}
 
 	succeedRows := []int{}
@@ -354,6 +354,7 @@ func RunImportOutletCmd(args []string) {
 			outletNote,
 			createdAt,
 			*adminID,
+			outletCode,
 		)
 
 		batchOutletRows = append(batchOutletRows, rowVals)

@@ -231,21 +231,21 @@ func RunImportSalesInvoiceMissingCmd(args []string) {
 		var existsInv int
 		errInv := tx.QueryRow(`SELECT 1 FROM list_sales_invoice WHERE sales_invoice_number = ? LIMIT 1`, invoiceNumber).Scan(&existsInv)
 		if errInv == nil {
-			fmt.Println("Invoice sudah ada, skip: ", invoiceNumber)
-			_, err = tx.Exec("UPDATE list_sales_order SET branch_billing_id = ? WHERE sales_number = ?", branchBilling.ID, invoiceNumber)
-			if err != nil {
-				_ = tx.Rollback()
-				resp.Message = "db error update list sales order: " + err.Error()
-				goto FINISH
-			}
+			// fmt.Println("Invoice sudah ada, skip: ", invoiceNumber)
+			// _, err = tx.Exec("UPDATE list_sales_order SET branch_billing_id = ? WHERE sales_number = ?", branchBilling.ID, invoiceNumber)
+			// if err != nil {
+			// 	_ = tx.Rollback()
+			// 	resp.Message = "db error update list sales order: " + err.Error()
+			// 	goto FINISH
+			// }
 
-			// Update list_sales_invoice
-			_, err = tx.Exec("UPDATE list_sales_invoice SET branch_billing_id = ? WHERE sales_invoice_number = ?", branchBilling.ID, invoiceNumber)
-			if err != nil {
-				_ = tx.Rollback()
-				resp.Message = "db error update list sales_invoice: " + err.Error()
-				goto FINISH
-			}
+			// // Update list_sales_invoice
+			// _, err = tx.Exec("UPDATE list_sales_invoice SET branch_billing_id = ? WHERE sales_invoice_number = ?", branchBilling.ID, invoiceNumber)
+			// if err != nil {
+			// 	_ = tx.Rollback()
+			// 	resp.Message = "db error update list sales_invoice: " + err.Error()
+			// 	goto FINISH
+			// }
 			continue
 		}
 
